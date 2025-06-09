@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+
+  kong-db:
+    image: postgres:11
+    container_name: kong-db
+    environment:
+      POSTGRES_DB: kong
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: kong
+    volumes:
+      - kong_data:/var/lib/postgresql/data
+    networks:
+      - kong-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kong"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+
+  kong-migrations:
+    image: kong:3.6
+    container_name: kong-migrations
+    depends_on:
+      kong-db:
+        condition: service_healthy
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_PASSWORD: kong
+      KONG_PG_USER: kong
+    command: kong migrations bootstrap
+    networks:
+      - kong-net
+
+  kong:
+    image: kong:3.6
+    container_name: kong
+    depends_on:
+      kong-db:
+        condition: service_healthy
+      kong-migrations:
+        condition: service_completed_successfully
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kong
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001, 0.0.0.0:8444 ssl
+    ports:
+      - "8000:8000"
+      - "8443:8443"
+      - "8001:8001"
+      - "8444:8444"
+    networks:
+      - kong-net
+
+  #  ⚑ 1º passo: preparar o banco da Konga (roda uma vez)
+  konga-prepare:
+    image: pantsel/konga:latest
+    platform: linux/amd64
+    command: "-c prepare -a postgres -u postgresql://kong:kong@kong-db:5432/kong"
+    depends_on:
+      kong-db:
+        condition: service_healthy
+    networks:
+      - kong-net
+
+  #  ⚑ 2º passo: a própria UI
+  konga:
+    image: pantsel/konga:latest
+    platform: linux/amd64
+    environment:
+      TOKEN_SECRET: "mudese-para-um-valor-seguro"
+      DB_ADAPTER: "postgres"
+      DB_HOST: kong-db
+      DB_PORT: 5432
+      DB_USER: kong
+      DB_PASSWORD: kong
+      DB_DATABASE: kong
+    depends_on:
+      - konga-prepare
+    ports:
+      - "1337:1337"
+    networks:
+      - kong-net
+
+  db:
+    platform: linux/amd64
+    image: mysql:8.0.30-debian
+    volumes:
+      - ./.docker/dbdata:/var/lib/mysql
+    container_name: keycloak-db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: keycloak
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      - kong-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 10s
+      retries: 3
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    command: start-dev
+    ports:
+      - 8888:8080
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: mysql
+      KC_DB_URL: jdbc:mysql://keycloak-db:3306/keycloak
+      KC_DB_USERNAME: root
+      KC_DB_PASSWORD: root
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - kong-net
+
+volumes:
+  kong_data:
+
+networks:
+  kong-net:

@@ -1,0 +1,30 @@
+1 - CRIAR UM RELMES
+EX: KONG-REMLS
+
+2 - CRIAR UM CLIENTE
+EX: KONG-CLIENT
+
+3 - CONFIGURAR CLIENTE CRIADO
+  - HABILIETE A OPCAO "Client authentication" = ON
+  - SAVE
+
+4 - CREDENCIAIS E PEGUE O "Client Secret"
+EX: Oq09Z1in7fkJw1SzFIkGgwVtgTSxNmbl
+
+5 - CONFIGURAR O KONG PARA ACEITAR O TOKEN
+
+- CRIAR UM SERVICO NO KONG
+curl -i -X POST http://localhost:8001/services \
+  --data name=meu-servico \
+  --data url=http://golang-api:8080
+
+- CRIAR UMA ROTA PARA O SERVICO
+curl -i -X POST http://localhost:8001/services/meu-servico/routes \
+  --data paths[]=/ola
+
+- ADICIONAR PLUGIN JWT NA ROTA
+curl -i -X POST http://localhost:8001/routes/ola/plugins \
+  --data name=jwt
+
+- CRIAR UMA CREDENCIAL JWT PARA O CLIENTE
+(OBS: Este passo é opcional se você quiser mapear diretamente o issuer do token JWT emitido pelo Keycloak)
